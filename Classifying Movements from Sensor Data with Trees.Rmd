@@ -1,0 +1,140 @@
+---
+title: "Classifying Movements from Sensor Data with Trees"
+author: "Teo Moreno Cuadra"
+date: "June 16th, 2017"
+output:
+  html_document: default
+  pdf_document: default   
+ 
+---
+
+
+## Summary
+
+Data from wearable devices accelerometers on the belt, forearm, arm, and dumbell of 6 participants asked to perform weight lifting correctly (classe A) and incorrectly in 4 different ways (classe B, C, D and E) are used to build a model able to predict the way the exercise was performed. More in formation on the data is available on http://groupware.les.inf.puc-rio.br/har.
+
+Decision trees are chosen as the machine-learning models, for classification. A Simple Decision Tree is fitted first. The tree turns out to be fast but not very accurate. To improve accuracy many trees are also fitted with Random Forests that is good for beginners, robust to over-fitting and usually yields very accurate non-linear models. The random forests model is finally applied to predict the way variable (classe A, B, C, D, E) for 20 test cases provided.
+
+## Getting and Cleaning the Data
+
+Loading packages.
+
+```{r}
+library(downloader); library(lattice); library(ggplot2); library(caret); library(rpart); library(rattle); library(rpart.plot); library(ranger); library(e1071)
+```
+
+Downloading and importing the training and testing data sets.
+
+```{r}
+url_train <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+url_val <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+file_train <- "pml-training.csv"
+file_val <- "pml-testing.csv"
+download(url_train, destfile = file_train)
+download(url_val, destfile = file_val)
+train <- read.csv(file_train, na.strings = c("NA", ""))
+val <- read.csv(file_val, na.strings = c("NA", ""))
+```
+The train (training) and the val (20 test cases) sets include 160 variables including the "classe" on the train set that we want to predict on the val set for the "problem_id" variable.
+
+```{r}
+dim(train); dim(val)
+names(train)[160]; names(val)[160]
+```
+
+The first seven columns on both sets include variables that not seem to be very relevant.
+
+```{r}
+head(train[, 1:7], 1)
+head(val[, 1:7], 1)
+```
+
+So the first seven columns from both data sets are removed.
+
+```{r}
+train_data <- train[, -(1:7)]
+val_data <- val[, -(1:7)]
+```
+
+Of the left columns, 100 include NAs. 
+
+```{r}
+sum(colSums(is.na(train_data)) > 0); sum(colSums(is.na(val_data)) > 0)
+```
+
+In all of them NAs represent more 95% of the cases. 
+
+```{r}
+sum((colSums(is.na(train_data))/(dim(train_data)[1])) >= 0.95); sum((colSums(is.na(val_data))/(dim(val_data)[1])) >= 0.95)
+```
+
+So instead of inputing values, all the columns with variables that include any NAs are removed.
+
+```{r}
+train_data <- train_data[, colSums(is.na(train_data)) == 0]
+val_data <- val_data[, colSums(is.na(val_data)) == 0]
+```
+
+## Splitting the Data
+
+The cleaned training set is split in two (70:30) to train models for prediction and calculate out of sample error respectively.
+
+```{r}
+set.seed(2266)
+inTrain <- createDataPartition(train_data$classe, p = 0.7, list = FALSE)
+training <- train_data[inTrain, ]
+testing <- train_data[-inTrain, ]
+```
+
+## Model Fitting Using Decision Trees and Random Forest
+
+Two models are trained with the training data set using simple decision trees and random forests respectively.
+
+### Simple Decision Tree
+
+We start with a simple decision tree without variables transformation. The model turns out to be fast but not very accurate (0.52).
+
+```{r}
+fit_trees <- train(classe ~., data = training, method = "rpart")
+print(fit_trees)
+```
+
+Plot of the fitted tree.
+
+```{r}
+fancyRpartPlot(fit_trees$finalModel)
+```
+
+The model is tested out sample and the confusion matrix is  generated confirming low accuracy (0.49).
+
+```{r}
+predict_trees <- predict(fit_trees, testing)
+confusionMatrix(testing$classe, predict_trees)
+```
+
+### Random Forest Model
+
+To improve accuracy, many trees are fitted to bootsrapped samples of the training data randomly sampling columns at each split. Default values for hyper parameters are used except for a control element with 5 folds for cross validation, half the default value, to reduce computation time. The “ranger” package is chosen over the “rf” because is more than two times faster.
+
+```{r}
+library(caret)
+myControl <- trainControl(method = "cv", number = 5, verboseIter = TRUE)
+fit_rf_ranger <- train(classe ~., data = training,
+                 method = "ranger", trControl = myControl)
+print(fit_rf_ranger)
+```
+
+The model is tested out sample and the confusion matrix is  generated confirming high accuracy (0.99).
+
+```{r}
+predict_rf_ranger <- predict(fit_rf_ranger, testing)
+confusionMatrix(testing$classe, predict_rf_ranger)
+```
+
+## Applying the Random Forest Model to Test Data
+
+The random forest model is applied to the 20 test cases available in the test data provided. 
+
+```{r}
+predict(fit_rf_ranger, val_data)
+```
